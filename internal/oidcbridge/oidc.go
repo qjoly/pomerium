@@ -125,6 +125,24 @@ func deriveJWKS(sharedSecret []byte) (*jose.JSONWebKeySet, error) {
 	return &jwks, nil
 }
 
+func validateForm(r *http.Request) error {
+	if err := r.ParseForm(); err != nil {
+		return &errorResponse{
+			ErrorCode: "invalid_request",
+		}
+	}
+	// RFC 6749: The OAuth 2.0 Authorization Framework section §5.2, repeated values are not allowed
+	for _, values := range r.Form {
+		if len(values) > 1 {
+			return &errorResponse{
+				ErrorCode:   "invalid_request",
+				Description: "repeated parameter",
+			}
+		}
+	}
+	return nil
+}
+
 var oidcResponseTypesSupported = []string{"code"}
 
 func (h *Handlers) HandleOIDCConfiguration(w http.ResponseWriter, r *http.Request) {
@@ -163,8 +181,8 @@ func (h *Handlers) HandleAuth(w http.ResponseWriter, r *http.Request) {
 			}).ErrorResponse(r.Context(), w, r)
 			return
 		}
-		e := &errorResponse{}
-		if !errors.As(err, e) {
+		var e *errorResponse
+		if !errors.As(err, &e) {
 			e = &errorResponse{
 				ErrorCode:   "invalid_request",
 				Description: err.Error(),
@@ -219,6 +237,9 @@ type validatedAuthRequest struct {
 }
 
 func (h *Handlers) validateAuthRequest(r *http.Request) (*validatedAuthRequest, error) {
+	if err := validateForm(r); err != nil {
+		return nil, err
+	}
 	client, err := h.clients.Lookup(r.FormValue("client_id"), r.FormValue("redirect_uri"))
 	if err != nil {
 		return nil, err
@@ -364,19 +385,8 @@ type ValidatedTokenRequest struct {
 const timestampFormat = "2006-01-02 15:04:05 MST"
 
 func (h *Handlers) validateTokenFormValues(r *http.Request) error {
-	if err := r.ParseForm(); err != nil {
-		return &errorResponse{
-			ErrorCode: "invalid_request",
-		}
-	}
-	// RFC 6749: The OAuth 2.0 Authorization Framework section §5.2, repeated values are not allowed
-	for _, values := range r.Form {
-		if len(values) > 1 {
-			return &errorResponse{
-				ErrorCode:   "invalid_request",
-				Description: "repeated parameter",
-			}
-		}
+	if err := validateForm(r); err != nil {
+		return err
 	}
 	if _, _, ok := r.BasicAuth(); ok {
 		if _, ok := r.PostForm["client_secret"]; ok {

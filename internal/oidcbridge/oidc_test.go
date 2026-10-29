@@ -208,6 +208,23 @@ func TestHandleAuth(t *testing.T) {
 		assert.Equal(t, "https://non-pkce.example.com/callback?error=invalid_request&error_description=nonce+too+large", res.Header.Get("Location"))
 	})
 
+	t.Run("request not supported", func(t *testing.T) {
+		q := url.Values{
+			"client_id":     {"https://pkce.example.com"},
+			"redirect_uri":  {"https://pkce.example.com/callback"},
+			"response_type": {"code"},
+			"scope":         {"openid"},
+			"request":       {"e30."},
+		}
+		w := httptest.NewRecorder()
+		h.HandleAuth(w, httptest.NewRequest(
+			http.MethodGet, "/oidc/auth?"+q.Encode(), nil,
+		))
+		location, err := url.Parse(w.Header().Get("Location"))
+		require.NoError(t, err)
+		assert.Equal(t, "request_not_supported", location.Query().Get("error"))
+	})
+
 	t.Run("internal error", func(t *testing.T) {
 		getSessionHandler := mockGetSessionHandle(nil, errors.New("internal error message"))
 		h, err := NewHandlers(getSessionHandler, nil, exampleConfig())
